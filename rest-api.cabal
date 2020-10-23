@@ -21,3 +21,4 @@ executable rest-api
                      , Spock == 0.13.*
                      , mtl
                      , text
+                     , aeson
