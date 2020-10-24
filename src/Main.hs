@@ -51,6 +51,11 @@ app =
     get "people" $ do
       allPeople <- runSQL $ selectList [] [Asc PersonId]
       json allPeople
+    get ("people" <//> var) $ \personId -> do
+      maybePerson <- runSQL $ P.get personId :: ApiAction (Maybe Person)
+      case maybePerson of
+        Nothing -> errorJson 2 "Could not find a person with matching id"
+        Just thePerson -> json thePerson
     post "people" $ do
       maybePerson <- jsonBody :: ApiAction (Maybe Person)
       case maybePerson of
