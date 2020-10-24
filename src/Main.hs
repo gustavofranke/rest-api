@@ -1,5 +1,14 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE EmptyDataDecls             #-}
+{-# LANGUAGE FlexibleContexts           #-}
+{-# LANGUAGE FlexibleInstances          #-}
+{-# LANGUAGE GADTs                      #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE MultiParamTypeClasses      #-}
+{-# LANGUAGE QuasiQuotes                #-}
+{-# LANGUAGE TemplateHaskell            #-}
+{-# LANGUAGE TypeFamilies               #-}
 
 module Main where
 
@@ -12,56 +21,51 @@ import qualified Data.Text as T
 import GHC.Generics
 import Web.Spock
 import Web.Spock.Config
+import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
+import Database.Persist hiding (get) -- To avoid a naming clash with Web.Spock.get
+import qualified Database.Persist as P -- We'll be using P.get later for GET /people/<id>.
+import Database.Persist.Sqlite hiding (get)
+import Database.Persist.TH
 
-data Person = Person
-  { name :: Text,
-    age :: Int
-  }
-  deriving (Generic, Show)
+share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+Person json -- The json keyword will make Persistent generate sensible ToJSON and FromJSON instances for us.
+  name Text
+  age Int
+  deriving Show
+|]
 
-instance ToJSON Person
-
-instance FromJSON Person
-
-
--- *Main> :set -XOverloadedStrings
--- *Main> encode Person { name = "Leela", age = 25 }
--- "{\"age\":25,\"name\":\"Leela\"}"
--- *Main> decode "{ \"name\": \"Amy\", \"age\": 30 }" :: Maybe Person
--- Just (Person {name = "Amy", age = 30})
--- *Main> 
--- *Main> decode "{\"age\":25,\"name\":\"Leela\"}" :: Maybe Person
--- Just (Person {name = "Leela", age = 25})
--- *Main> 
--- *Main> decode "{ \"name\": \"Amy\", \"age\": 30 }" :: Maybe Value
--- Just (Object (fromList [("age",Number 30.0),("name",String "Amy")]))
--- *Main> 
-
-data MySession = EmptySession
-data MyAppState = DummyAppState (IORef Int)
-
-type Api = SpockM () MySession MyAppState ()
-type ApiAction a = SpockAction () MySession MyAppState a
+type Api = SpockM SqlBackend () () ()
+type ApiAction a = SpockAction SqlBackend () () a
 
 main :: IO ()
 main = do
   ref <- newIORef 0
-  spockCfg <- defaultSpockCfg EmptySession PCNoDatabase (DummyAppState ref)
+  pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
+  spockCfg <- defaultSpockCfg () (PCPool pool) ()
+  runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
   runSpock 8080 (spock spockCfg app)
 
 app :: Api
 app =
   do
-    get root $
-      text "Hello World!"
-    get ("hello" <//> var) $ \name ->
-      do
-        (DummyAppState ref) <- getState
-        visitorNumber <- liftIO $ atomicModifyIORef' ref $ \i -> (i + 1, i + 1)
-        text ("Hello " <> name <> ", you are visitor number " <> T.pack (show visitorNumber))
-    get "people" $
-      do json [Person {name = "Fry", age = 25}, Person {name = "Bender", age = 4}]
-    post "people" $
-      do
-        thePerson <- jsonBody' :: ApiAction Person
-        text $ "Parsed: " <> pack (show thePerson)
+    get "people" $ do
+      allPeople <- runSQL $ selectList [] [Asc PersonId]
+      json allPeople
+    post "people" $ do
+      maybePerson <- jsonBody :: ApiAction (Maybe Person)
+      case maybePerson of
+        Nothing -> errorJson 1 "Failed to parse request body as Person"
+        Just thePerson -> do
+          newId <- runSQL $ insert thePerson
+          json $ object ["result" .= String "success", "id" .= newId]
+
+runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
+runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
+
+errorJson :: Int -> Text -> ApiAction ()
+errorJson code message =
+  json $
+    object
+    [ "result" .= String "failure"
+    , "error" .= object ["code" .= code, "message" .= message]
+    ]

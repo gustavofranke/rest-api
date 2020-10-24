@@ -22,3 +22,7 @@ executable rest-api
                      , mtl
                      , text
                      , aeson
+                     , monad-logger
+                     , persistent
+                     , persistent-sqlite
+                     , persistent-template
