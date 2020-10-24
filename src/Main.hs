@@ -63,6 +63,21 @@ app =
         Just thePerson -> do
           newId <- runSQL $ insert thePerson
           json $ object ["result" .= String "success", "id" .= newId]
+    put ("people" <//> var) $ \personId -> do
+      maybePerson <- jsonBody :: ApiAction (Maybe Person)
+      case maybePerson of
+        Nothing -> errorJson 3 "Failed to parse request body as Person"
+        Just thePerson -> do
+          res <- runSQL $ replace personId thePerson
+          json $ object ["result" .= String "success", "id" .= personId, "res" .= res]
+    Web.Spock.delete ("people" <//> var) $ \personId -> do
+      maybePerson <- runSQL $ P.get personId :: ApiAction (Maybe Person)
+      case maybePerson of
+        Nothing -> errorJson 2 "Could not find a person with matching id"
+        Just thePerson -> do
+          runSQL $ P.delete personId  :: ApiAction ()
+          json $ object ["result" .= String "success"]
+
 
 runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
 runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
