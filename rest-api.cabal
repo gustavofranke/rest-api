@@ -27,3 +27,4 @@ executable rest-api
                      , persistent-sqlite
                      , persistent-template
                      , http-types
+                     , bytestring

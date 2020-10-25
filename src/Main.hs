@@ -27,6 +27,7 @@ import qualified Database.Persist as P -- We'll be using P.get later for GET /pe
 import Database.Persist.Sqlite hiding (get)
 import Database.Persist.TH
 import Network.HTTP.Types.Status
+import Data.Text.Encoding
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Person json -- The json keyword will make Persistent generate sensible ToJSON and FromJSON instances for us.
@@ -42,7 +43,8 @@ main :: IO ()
 main = do
   ref <- newIORef 0
   pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
-  spockCfg <- defaultSpockCfg () (PCPool pool) ()
+  spockCfg' <- defaultSpockCfg () (PCPool pool) ()
+  let spockCfg = spockCfg' {spc_errorHandler = errorJson'}
   runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
   runSpock 8080 (spock spockCfg app)
 
@@ -92,7 +94,10 @@ app =
 runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
 runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 
-errorJson :: Int -> Text -> ApiAction ()
+errorJson' :: Status -> ActionCtxT ctx IO ()
+errorJson' (Status code message) = errorJson code (decodeUtf8 message)
+
+errorJson  :: MonadIO m => Int -> Text -> ActionCtxT ctx m ()
 errorJson code message =
   json $
     object
