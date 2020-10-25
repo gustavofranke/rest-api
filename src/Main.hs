@@ -26,6 +26,7 @@ import Database.Persist hiding (get) -- To avoid a naming clash with Web.Spock.g
 import qualified Database.Persist as P -- We'll be using P.get later for GET /people/<id>.
 import Database.Persist.Sqlite hiding (get)
 import Database.Persist.TH
+import Network.HTTP.Types.Status
 
 share [mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
 Person json -- The json keyword will make Persistent generate sensible ToJSON and FromJSON instances for us.
@@ -54,26 +55,35 @@ app =
     get ("people" <//> var) $ \personId -> do
       maybePerson <- runSQL $ P.get personId :: ApiAction (Maybe Person)
       case maybePerson of
-        Nothing -> errorJson 2 "Could not find a person with matching id"
+        Nothing -> do
+          Web.Spock.setStatus notFound404
+          errorJson 2 "Could not find a person with matching id"
         Just thePerson -> json thePerson
     post "people" $ do
       maybePerson <- jsonBody :: ApiAction (Maybe Person)
       case maybePerson of
-        Nothing -> errorJson 1 "Failed to parse request body as Person"
+        Nothing -> do
+          Web.Spock.setStatus badRequest400
+          errorJson 1 "Failed to parse request body as Person"
         Just thePerson -> do
           newId <- runSQL $ insert thePerson
+          Web.Spock.setStatus created201
           json $ object ["result" .= String "success", "id" .= newId]
     put ("people" <//> var) $ \personId -> do
       maybePerson <- jsonBody :: ApiAction (Maybe Person)
       case maybePerson of
-        Nothing -> errorJson 3 "Failed to parse request body as Person"
+        Nothing -> do
+          Web.Spock.setStatus badRequest400
+          errorJson 3 "Failed to parse request body as Person"
         Just thePerson -> do
           res <- runSQL $ replace personId thePerson
           json $ object ["result" .= String "success", "id" .= personId, "res" .= res]
     Web.Spock.delete ("people" <//> var) $ \personId -> do
       maybePerson <- runSQL $ P.get personId :: ApiAction (Maybe Person)
       case maybePerson of
-        Nothing -> errorJson 2 "Could not find a person with matching id"
+        Nothing -> do
+          Web.Spock.setStatus notFound404
+          errorJson 4 "Could not find a person with matching id"
         Just thePerson -> do
           runSQL $ P.delete personId  :: ApiAction ()
           json $ object ["result" .= String "success"]
