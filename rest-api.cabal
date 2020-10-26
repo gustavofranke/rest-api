@@ -28,3 +28,4 @@ executable rest-api
                      , persistent-template
                      , http-types
                      , bytestring
+                     , wai

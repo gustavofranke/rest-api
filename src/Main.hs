@@ -27,8 +27,10 @@ import Database.Persist.Sqlite hiding (get)
 import Database.Persist.TH
 import GHC.Generics
 import Network.HTTP.Types.Status
+import Network.Wai (Middleware)
 import Web.Spock
 import Web.Spock.Config
+
 
 share
   [mkPersist sqlSettings, mkMigrate "migrateAll"]
@@ -44,16 +46,19 @@ type Api = SpockM SqlBackend () () ()
 type ApiAction a = SpockAction SqlBackend () () a
 
 main :: IO ()
-main = do
+main = runSpock 8080 app
+
+app :: IO Middleware
+app = do
   ref <- newIORef 0
   pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
   spockCfg' <- defaultSpockCfg () (PCPool pool) ()
   let spockCfg = spockCfg' {spc_errorHandler = errorJson'}
   runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
-  runSpock 8080 (spock spockCfg app)
+  spock spockCfg routes
 
-app :: Api
-app =
+routes :: Api
+routes =
   do
     get "people" $ do
       allPeople <- runSQL $ selectList [] [Asc PersonId]
