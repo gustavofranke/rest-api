@@ -15,17 +15,13 @@ module App where
 import Control.Monad.Logger (LoggingT, runStdoutLoggingT)
 import Control.Monad.Trans
 import Data.Aeson hiding (json)
-import Data.IORef
-import Data.Monoid ((<>))
-import Data.Text (Text, pack)
-import qualified Data.Text as T
+import Data.Text (Text)
 
 import Data.Text.Encoding
 import Database.Persist hiding (get)
 import qualified Database.Persist as P
 import Database.Persist.Sqlite hiding (get)
 import Database.Persist.TH
-import GHC.Generics
 import Network.HTTP.Types.Status
 import Network.Wai (Middleware)
 import Web.Spock
@@ -45,7 +41,7 @@ type Api = SpockM SqlBackend () () ()
 type ApiAction a = SpockAction SqlBackend () () a
 app :: IO Middleware
 app = do
-  ref <- newIORef 0
+  -- ref <- newIORef 0
   pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
   spockCfg' <- defaultSpockCfg () (PCPool pool) ()
   let spockCfg = spockCfg' {spc_errorHandler = errorJson'}
@@ -90,7 +86,7 @@ routes =
         Nothing -> do
           Web.Spock.setStatus notFound404
           errorJson 4 "Could not find a person with matching id"
-        Just thePerson -> do
+        Just _ -> do
           runSQL $ P.delete personId :: ApiAction ()
           json $ object ["result" .= String "success"]
 
